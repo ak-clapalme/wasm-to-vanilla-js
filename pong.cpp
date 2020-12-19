@@ -6,6 +6,17 @@
 #include <string>
 #include <emscripten/val.h>
 
+// if multithreading is enabled
+#ifdef __EMSCRIPTEN_PTHREADS__
+#include <chrono>
+#include <mutex>
+#include <queue>
+#include <thread>
+
+std::thread t1;
+
+#endif
+
 EM_JS(void, drawCanvas, (int height, int width), {
 		body = document.getElementsByTagName("body")[0];
 		canvas = document.createElement("canvas");
@@ -14,6 +25,48 @@ EM_JS(void, drawCanvas, (int height, int width), {
 		canvas.setAttribute("height", height);
 		canvas.setAttribute("width", width);
 });
+
+class DebugLog {
+	public:
+		#ifdef __EMSCRIPTEN_PTHREADS__
+		DebugLog() {
+			t1 = std::thread(&DebugLog::waitForMessagesToLog, this);
+		}
+
+		void waitForMessagesToLog() {
+			while (true) {
+				std::unique_lock lck(messages_mutex);
+				if (!messages.empty()) {
+					auto[str, name] = messages.front();
+					messages.pop();
+					lck.unlock();
+					_log(str, name);
+				}
+				using namespace std::literals::chrono_literals;
+				std::this_thread::sleep_for(500ms);
+			}
+		}
+		#endif
+
+		void logMessage(const std::string& str, const std::string& name) {
+			#ifdef __EMSCRIPTEN_PTHREADS__
+				std::lock_guard g(messages_mutex);
+				messages.push({str, name});
+			#else
+				_log(str, name);
+				#endif
+		}
+
+		void _log(const std::string& str, const std::string& name) {
+			std::cout << "hello, this is the single-threaded logging mechanism" << std::endl;
+		}
+
+	private:
+		#ifdef __EMSCRIPTEN_PTHREADS__
+		std::queue<std::pair<std::string, std::string>> messages;
+		std::mutex messages_mutex;
+		#endif
+};
 
 enum class Move {
 	STATIONARY = 0,
